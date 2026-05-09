@@ -43,6 +43,9 @@
           "microphonePermission": "Quantum Ceed needs your microphone for the Voice AI Coach."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "openaiApiKey": ""
+    }
   }
 }

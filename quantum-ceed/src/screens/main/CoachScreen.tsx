@@ -11,28 +11,50 @@ import {
 import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
 import { ScreenContainer } from '../../components/ScreenContainer';
-import { Card } from '../../components/Card';
 import { Pill } from '../../components/Pill';
 import { colors, radii, spacing, typography } from '../../lib/theme';
 import { useApp } from '../../lib/AppContext';
-import { getDayNumber, getPhase, getPhaseInfo, COACH_REMINDERS } from '../../lib/program';
+import {
+  COACH_REMINDERS,
+  getDailyTasks,
+  getDayNumber,
+  getPhase,
+  getPhaseInfo,
+} from '../../lib/program';
+import { useDailyLog } from '../../lib/useDailyLog';
+import {
+  aiEnabled,
+  getCoachReply,
+  synthesizeSpeech,
+  transcribeAudio,
+  type CoachTurn,
+} from '../../lib/ai';
 
 interface Message {
   id: string;
   from: 'coach' | 'me';
   text: string;
+  pending?: boolean;
 }
 
 export function CoachScreen() {
   const { profile, updateProfile } = useApp();
+  const { log } = useDailyLog();
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [busy, setBusy] = useState(false);
+  const [statusLine, setStatusLine] = useState<string | null>(null);
   const pulse = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
 
   const day = profile ? getDayNumber(profile.startDateISO) : 1;
-  const phaseInfo = getPhaseInfo(getPhase(day));
+  const phase = getPhase(day);
+  const phaseInfo = getPhaseInfo(phase);
+  const dailyTasks = getDailyTasks(day);
+  const completedToday = log
+    ? dailyTasks.filter((t) => log.completed[t.id]).length
+    : 0;
 
   useEffect(() => {
     if (!profile || messages.length > 0) return;
@@ -41,6 +63,7 @@ export function CoachScreen() {
     speak(opener);
     return () => {
       Speech.stop();
+      soundRef.current?.unloadAsync().catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.name]);
@@ -64,8 +87,29 @@ export function CoachScreen() {
     ).start();
   }, [pulse]);
 
-  const speak = (text: string) => {
-    Speech.stop();
+  // Speak a reply: prefer OpenAI TTS, fall back to expo-speech.
+  const speak = async (text: string) => {
+    try {
+      Speech.stop();
+      await soundRef.current?.unloadAsync().catch(() => {});
+      soundRef.current = null;
+
+      if (aiEnabled && profile) {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        });
+        const uri = await synthesizeSpeech(text, profile.coachVoice);
+        const { sound } = await Audio.Sound.createAsync(
+          { uri },
+          { shouldPlay: true },
+        );
+        soundRef.current = sound;
+        return;
+      }
+    } catch {
+      // fall through to expo-speech
+    }
     Speech.speak(text, {
       pitch: profile?.coachVoice === 'female' ? 1.15 : 0.85,
       rate: 0.95,
@@ -76,7 +120,14 @@ export function CoachScreen() {
     try {
       const perm = await Audio.requestPermissionsAsync();
       if (!perm.granted) return;
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      Speech.stop();
+      await soundRef.current?.unloadAsync().catch(() => {});
+      soundRef.current = null;
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
       const rec = new Audio.Recording();
       await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       await rec.startAsync();
@@ -87,29 +138,93 @@ export function CoachScreen() {
   const stopRec = async () => {
     if (!recording) return;
     setBusy(true);
+
+    let audioUri: string | null = null;
     try {
       await recording.stopAndUnloadAsync();
+      audioUri = recording.getURI();
     } catch {}
     setRecording(null);
 
-    // Mock transcription + scripted coaching reply.
-    const userLine = pickUserLine();
-    const reply = generateReply(userLine, profile?.name ?? 'friend', day, phaseInfo.label);
+    let userText = '';
+    let reply = '';
+    let usedAi = false;
+
+    // Show a placeholder "thinking" bubble immediately for snappy feel.
+    const thinkingId = `c-thinking-${Date.now()}`;
     setMessages((m) => [
       ...m,
-      { id: `u-${Date.now()}`, from: 'me', text: userLine },
-      { id: `c-${Date.now() + 1}`, from: 'coach', text: reply },
+      { id: `u-pending-${Date.now()}`, from: 'me', text: '…', pending: true },
+      { id: thinkingId, from: 'coach', text: 'Listening…', pending: true },
     ]);
-    speak(reply);
+
+    try {
+      if (aiEnabled && audioUri) {
+        setStatusLine('Transcribing');
+        userText = await transcribeAudio(audioUri);
+      } else {
+        userText = pickUserLine();
+      }
+
+      if (!userText) userText = pickUserLine();
+
+      if (aiEnabled && profile) {
+        setStatusLine('Thinking');
+        const history: CoachTurn[] = messages
+          .filter((m) => !m.pending)
+          .map((m) => ({
+            role: m.from === 'me' ? 'user' : 'assistant',
+            content: m.text,
+          }));
+        history.push({ role: 'user', content: userText });
+
+        reply = await getCoachReply(history, {
+          name: profile.name,
+          day,
+          phaseLabel: phaseInfo.label,
+          style: profile.personality?.style ?? 'direct',
+          voice: profile.coachVoice,
+          partnerName: profile.partnerName,
+          mode: profile.mode,
+          completedToday,
+          totalTasks: dailyTasks.length,
+        });
+        usedAi = true;
+      }
+
+      if (!reply) {
+        reply = generateReply(userText, profile?.name ?? 'friend', day, phaseInfo.label);
+      }
+    } catch (e: any) {
+      reply = generateReply(userText || '', profile?.name ?? 'friend', day, phaseInfo.label);
+      setStatusLine(`AI hiccup — using fallback`);
+      // Auto-clear status after 3s.
+      setTimeout(() => setStatusLine(null), 3000);
+    } finally {
+      setStatusLine(null);
+    }
+
+    setMessages((m) => {
+      const cleaned = m.filter((x) => !x.pending);
+      return [
+        ...cleaned,
+        { id: `u-${Date.now()}`, from: 'me', text: userText },
+        { id: `c-${Date.now() + 1}`, from: 'coach', text: reply },
+      ];
+    });
+
+    setStatusLine(usedAi ? 'Speaking' : null);
+    await speak(reply);
     setBusy(false);
+    setStatusLine(null);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
   };
 
-  const sendQuickReminder = (slot: 'morning' | 'evening' | 'night') => {
+  const sendQuickReminder = async (slot: 'morning' | 'evening' | 'night') => {
     if (!profile) return;
     const line = COACH_REMINDERS.find((r) => r.slot === slot)?.text(profile.name, day) ?? '';
     setMessages((m) => [...m, { id: `c-${Date.now()}`, from: 'coach', text: line }]);
-    speak(line);
+    await speak(line);
   };
 
   const dotScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.4] });
@@ -120,8 +235,14 @@ export function CoachScreen() {
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.eyebrow}>VOICE AI COACH</Text>
-          <Text style={styles.title}>Day {day} · {phaseInfo.label}</Text>
+          <Text style={styles.title}>
+            Day {day} · {phaseInfo.label}
+          </Text>
         </View>
+        <Pill
+          label={aiEnabled ? 'AI live' : 'Demo'}
+          tone={aiEnabled ? 'green' : 'muted'}
+        />
         <Pill
           label={profile?.coachVoice === 'female' ? 'Female' : 'Male'}
           tone="gold"
@@ -150,12 +271,19 @@ export function CoachScreen() {
             style={[
               styles.bubble,
               m.from === 'coach' ? styles.coachBubble : styles.meBubble,
+              m.pending && styles.bubblePending,
             ]}
           >
             {m.from === 'coach' ? (
               <Text style={styles.coachLabel}>COACH</Text>
             ) : null}
-            <Text style={[styles.bubbleText, m.from === 'me' && { color: colors.bg }]}>
+            <Text
+              style={[
+                styles.bubbleText,
+                m.from === 'me' && { color: colors.bg },
+                m.pending && { fontStyle: 'italic' },
+              ]}
+            >
               {m.text}
             </Text>
           </View>
@@ -195,7 +323,13 @@ export function CoachScreen() {
           </Text>
         </Pressable>
         <Text style={styles.micHint}>
-          {recording ? 'Listening… tap to send' : 'Hold thoughts and tap to talk'}
+          {statusLine
+            ? `${statusLine}…`
+            : recording
+              ? 'Listening… tap to send'
+              : aiEnabled
+                ? 'Tap to talk — your coach hears you'
+                : 'Tap to talk (demo replies)'}
         </Text>
       </View>
     </ScreenContainer>
@@ -236,7 +370,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   eyebrow: { ...typography.micro, color: colors.gold },
   title: { ...typography.h2, color: colors.text, marginTop: 2 },
@@ -270,6 +404,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     backgroundColor: colors.gold,
   },
+  bubblePending: { opacity: 0.6 },
   coachLabel: {
     ...typography.micro,
     color: colors.gold,
@@ -317,5 +452,5 @@ const styles = StyleSheet.create({
   },
   micActive: { backgroundColor: colors.gold, borderColor: colors.goldSoft },
   micIcon: { fontSize: 28, color: colors.gold, fontWeight: '700' },
-  micHint: { ...typography.caption, color: colors.textMuted },
+  micHint: { ...typography.caption, color: colors.textMuted, textAlign: 'center', paddingHorizontal: spacing.lg },
 });

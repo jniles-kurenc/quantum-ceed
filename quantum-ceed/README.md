@@ -30,8 +30,9 @@ Sperm tests on **Day 1, Day 45, and Day 90** using the YO Sperm Test kit.
 ## Tech
 
 - Expo (React Native + TypeScript)
-- expo-av (voice recording), expo-speech (TTS), expo-image-picker (photos)
-- AsyncStorage for local persistence
+- expo-av (voice recording + audio playback), expo-speech (fallback TTS), expo-image-picker (photos)
+- OpenAI Whisper (STT) + gpt-4o-mini (chat) + tts-1 (voice) for the live AI Coach
+- AsyncStorage for local persistence, expo-file-system for cached coach audio
 - react-native-svg for the gold/green Quantum Ceed mark and progress rings
 
 ## Run locally
@@ -43,6 +44,26 @@ npx expo start
 ```
 
 Open the Expo Go app on your phone and scan the QR code, or press `i` / `a` for the iOS / Android simulators.
+
+## Voice AI Coach setup
+
+The Coach screen has two modes:
+
+- **Demo mode** (default, no setup) — the coach uses on-device TTS (`expo-speech`) with scripted replies. The screen shows a `Demo` pill. Great for trying the UX.
+- **AI live mode** — full pipeline: **Whisper** transcribes what you say → **gpt-4o-mini** replies as your coach (it knows your name, day, phase, coaching style, and how many tasks you've completed today) → **OpenAI TTS** speaks the reply in your chosen voice (`onyx` for male, `nova` for female). The screen shows an `AI live` pill.
+
+To turn on AI live mode:
+
+1. Copy `.env.example` to `.env` and add your OpenAI key:
+   ```bash
+   cp .env.example .env
+   ```
+   ```env
+   EXPO_PUBLIC_OPENAI_API_KEY=sk-...
+   ```
+2. Restart the Expo dev server (`npx expo start --clear`).
+
+> **Security note**: any key prefixed with `EXPO_PUBLIC_` is bundled into the binary. This is fine for local development and TestFlight builds you control, but for a public release you should put a tiny proxy server in front of OpenAI and have the app talk to that instead. The `src/lib/ai.ts` module is the only place to change.
 
 ## Project layout
 
