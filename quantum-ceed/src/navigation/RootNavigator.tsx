@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radii, spacing, typography } from '../lib/theme';
@@ -23,9 +23,23 @@ type RouteState =
   | { kind: 'detail'; screen: 'meals' | 'workouts' | 'tests' };
 
 export function RootNavigator() {
-  const { loading, profile, onboarding } = useApp();
+  const { loading, profile, onboarding, pendingRoute, setPendingRoute } = useApp();
   const [view, setView] = useState<RouteState>({ kind: 'main', tab: 'home' });
   const [partnerView, setPartnerView] = useState<'man' | 'partner'>('partner');
+
+  // Notification taps: jump to Coach or Tests.
+  useEffect(() => {
+    if (!pendingRoute) return;
+    if (pendingRoute.kind === 'coach') {
+      setPartnerView('man');
+      setView({ kind: 'main', tab: 'coach' });
+    } else if (pendingRoute.kind === 'tests') {
+      setPartnerView('man');
+      setView({ kind: 'main', tab: 'tests' });
+    }
+    // CoachScreen will read pendingRoute.autoSpeakSlot and clear it.
+    if (pendingRoute.kind !== 'coach') setPendingRoute(null);
+  }, [pendingRoute, setPendingRoute]);
 
   if (loading) {
     return <View style={styles.loading} />;

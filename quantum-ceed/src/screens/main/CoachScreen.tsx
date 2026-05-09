@@ -38,7 +38,7 @@ interface Message {
 }
 
 export function CoachScreen() {
-  const { profile, updateProfile } = useApp();
+  const { profile, updateProfile, pendingRoute, setPendingRoute } = useApp();
   const { log } = useDailyLog();
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -226,6 +226,20 @@ export function CoachScreen() {
     setMessages((m) => [...m, { id: `c-${Date.now()}`, from: 'coach', text: line }]);
     await speak(line);
   };
+
+  // If we landed here from a notification, auto-play the slot's reminder line once.
+  useEffect(() => {
+    if (!profile) return;
+    if (pendingRoute?.kind !== 'coach' || !pendingRoute.autoSpeakSlot) return;
+    const slot = pendingRoute.autoSpeakSlot;
+    setPendingRoute(null);
+    // Defer slightly so the screen has mounted and any opener finished.
+    const t = setTimeout(() => {
+      sendQuickReminder(slot);
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingRoute?.kind, pendingRoute?.autoSpeakSlot, profile?.name]);
 
   const dotScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.4] });
   const dotOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0.15] });

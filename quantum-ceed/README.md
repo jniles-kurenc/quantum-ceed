@@ -31,6 +31,7 @@ Sperm tests on **Day 1, Day 45, and Day 90** using the YO Sperm Test kit.
 
 - Expo (React Native + TypeScript)
 - expo-av (voice recording + audio playback), expo-speech (fallback TTS), expo-image-picker (photos)
+- expo-notifications for scheduled voice-coach reminders (morning / evening / night) and YO Sperm Test pings on Day 1, 45, 90
 - OpenAI Whisper (STT) + gpt-4o-mini (chat) + tts-1 (voice) for the live AI Coach
 - AsyncStorage for local persistence, expo-file-system for cached coach audio
 - react-native-svg for the gold/green Quantum Ceed mark and progress rings
@@ -64,6 +65,17 @@ To turn on AI live mode:
 2. Restart the Expo dev server (`npx expo start --clear`).
 
 > **Security note**: any key prefixed with `EXPO_PUBLIC_` is bundled into the binary. This is fine for local development and TestFlight builds you control, but for a public release you should put a tiny proxy server in front of OpenAI and have the app talk to that instead. The `src/lib/ai.ts` module is the only place to change.
+
+## Voice reminders & sperm-test alerts
+
+After onboarding, the app asks for notification permission and auto-schedules:
+
+- **Three daily voice-coach reminders** at the times you picked (morning / evening / night). Tapping one opens the Coach screen and the AI immediately speaks that slot's reminder line in your chosen voice.
+- **Three one-shot YO Sperm Test pings** on Day 1, Day 45, and Day 90, computed from your start date. Tapping one opens the Sperm Tests screen.
+
+Edit the times anytime under **Settings → Voice reminders**. Changes reschedule instantly. Test the system with the **Enable notifications** button if permission was denied at first.
+
+These are local notifications — they fire on-device and don't require a server. The notification content is text; the spoken AI line plays after you tap to open the app (mobile OSes don't allow background TTS playback from notifications).
 
 ## Project layout
 

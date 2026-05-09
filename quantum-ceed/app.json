@@ -42,6 +42,12 @@
         {
           "microphonePermission": "Quantum Ceed needs your microphone for the Voice AI Coach."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#E8C76A"
+        }
       ]
     ],
     "extra": {

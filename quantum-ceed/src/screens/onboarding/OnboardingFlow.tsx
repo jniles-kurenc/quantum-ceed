@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../lib/AppContext';
+import { ensureNotificationSetup, rescheduleAll } from '../../lib/notifications';
 import type { CoachVoice, PurchaseMode } from '../../lib/types';
 import { ModeSelectScreen } from './ModeSelectScreen';
 import { ProfileSetupScreen } from './ProfileSetupScreen';
@@ -68,7 +69,7 @@ export function OnboardingFlow() {
         onComplete={async (reminders) => {
           const today = new Date();
           const startDateISO = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-          await setProfile({
+          const newProfile = {
             name,
             partnerName,
             mode,
@@ -76,11 +77,19 @@ export function OnboardingFlow() {
             startDateISO,
             personality: { motivation: '', challenges: '', style: coachStyle },
             reminders,
-          });
+          };
+          await setProfile(newProfile);
           await setOnboarding({
             completed: true,
             voiceSessionSecondsRecorded: voiceSeconds,
           });
+          // Request notification permission and schedule the daily reminders
+          // + Day 1/45/90 sperm-test pings while the user is still in the
+          // 'I just set this up' headspace.
+          try {
+            const ok = await ensureNotificationSetup();
+            if (ok) await rescheduleAll(newProfile);
+          } catch {}
         }}
       />
     );
