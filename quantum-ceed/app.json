@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Quantum Ceed",
+    "slug": "quantum-ceed",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "quantumceed",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0A0A0A",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.quantumceed.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Quantum Ceed uses your microphone for the Voice AI Coach conversations and onboarding.",
+        "NSCameraUsageDescription": "Quantum Ceed uses your camera to verify workouts and meals.",
+        "NSPhotoLibraryUsageDescription": "Quantum Ceed lets you upload photos of meals and workouts."
+      }
+    },
+    "android": {
+      "package": "com.quantumceed.app",
+      "permissions": [
+        "RECORD_AUDIO",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Quantum Ceed needs access to your photos to verify meals and workouts.",
+          "cameraPermission": "Quantum Ceed needs access to your camera to verify meals and workouts."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Quantum Ceed needs your microphone for the Voice AI Coach."
+        }
+      ]
+    ]
+  }
+}
